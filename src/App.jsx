@@ -5,6 +5,7 @@ import Login from './components/Login';
 import Register from './components/Register';
 import Dashboard from './components/Dashboard';
 import BudgetForm from './components/BudgetForm';
+import Reports from './components/Reports';
 import './App.css';
 
 function App() {
@@ -38,6 +39,15 @@ function App() {
             element={
               <ProtectedRoute>
                 <BudgetForm isEditing={true} />
+              </ProtectedRoute>
+            }
+          />
+          
+          <Route
+            path="/reportes/:id"
+            element={
+              <ProtectedRoute>
+                <Reports />
               </ProtectedRoute>
             }
           />

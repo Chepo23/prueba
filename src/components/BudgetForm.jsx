@@ -20,22 +20,37 @@ const DRIVER_PER_DIEM_FACTOR = 6;
 const ROUND_TRIP = 'roundTrip';
 
 const TRANSPORT_CONFIG = {
-  bus: { label: 'Autobús', capacity: 40, defaultFuelPrice: 25.9 },
-  van: { label: 'Van', capacity: 12, defaultFuelPrice: 24.9 },
-  car: { label: 'Carro', capacity: 4, defaultFuelPrice: 24.5 },
-  plane: { label: 'Avión', capacity: 90, defaultFuelPrice: 20.5 },
-  train: { label: 'Tren', capacity: 120, defaultFuelPrice: 22.1 }
+  automovil: { label: 'Automóvil', capacity: 4, defaultFuelPrice: 24.5 },
+  pickups: { label: 'Pick Ups', capacity: 5, defaultFuelPrice: 23.5 },
+  motocicleta: { label: 'Motocicleta', capacity: 1, defaultFuelPrice: 20 },
+  camioneta: { label: 'Camioneta', capacity: 8, defaultFuelPrice: 23 },
+  automovil_remolque: { label: 'Automóvil con Remolque 1 Eje', capacity: 6, defaultFuelPrice: 25.5 }
 };
 
-const COST_FIELDS = new Set(['transportCost', 'hotelCost', 'foodCost', 'activitiesCost']);
+const TOLL_CONFIG = {
+  automovil: 150,
+  pickups: 150,
+  motocicleta: 75,
+  camioneta: 225,
+  automovil_remolque: 300
+};
+
+const TOLL_MULTIPLIER = {
+  automovil: 1,
+  pickups: 1,
+  motocicleta: 0.5,
+  camioneta: 1.5,
+  automovil_remolque: 2
+};
+
+const COST_FIELDS = new Set(['hotelCost', 'foodCost', 'activitiesCost']);
 const INTEGER_RULES = {
   passengers: { min: 1, max: MAX_PASSENGERS },
   quantity: { min: 1, max: MAX_PASSENGERS },
   contingencyPercent: { min: 0, max: MAX_CONTINGENCY_PERCENT }
 };
 const COST_INPUT_CONFIG = [
-  { id: 'transportCost', label: 'Costo de Transporte Adicional ($)', showMaxHint: true },
-  { id: 'hotelCost', label: 'Costo de Hospedaje ($)' },
+  { id: 'hotelCost', label: 'Precio por Noche ($)' },
   { id: 'foodCost', label: 'Costo de Comida ($)' },
   { id: 'activitiesCost', label: 'Costo de Actividades ($)' }
 ];
@@ -78,6 +93,13 @@ const normalizeCurrencyInput = (rawValue) => {
   return String(clampValue(parsed, 0, MAX_COST));
 };
 
+const parseFormattedCurrency = (formattedStr) => {
+  // Extrae solo números y punto decimal del string formateado
+  const cleaned = formattedStr.replace(/[^\d.]/g, '');
+  const parsed = Number.parseFloat(cleaned);
+  return Number.isFinite(parsed) ? String(parsed) : '';
+};
+
 const parseCurrency = (value) => {
   const parsed = Number.parseFloat(value);
   if (!Number.isFinite(parsed)) {
@@ -98,7 +120,17 @@ const parseSafeInteger = (value, min, max, fallback) => {
 
 const roundCurrency = (value) => Number((value || 0).toFixed(2));
 
-const getTransportMeta = (transportType) => TRANSPORT_CONFIG[transportType] || TRANSPORT_CONFIG.bus;
+const formatCurrency = (value) => {
+  const num = Number.parseFloat(value || 0);
+  return new Intl.NumberFormat('es-MX', {
+    style: 'currency',
+    currency: 'MXN',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(num);
+};
+
+const getTransportMeta = (transportType) => TRANSPORT_CONFIG[transportType] || TRANSPORT_CONFIG.automovil;
 
 const getRouteById = (routes, routeId) => routes.find((route) => route.id === routeId);
 
@@ -124,15 +156,16 @@ const calculateBudgetSummary = (formData) => {
   const returnRoute = getRouteById(routeCatalog, formData.routeReturnId);
   const isRoundTrip = formData.tripType === ROUND_TRIP;
 
-  const transportAdditional = parseCurrency(formData.transportCost);
-  const hotel = parseCurrency(formData.hotelCost);
+  const tripDays = getTripDays(formData.departureDateTime, formData.returnDateTime);
+
+  const hotelPricePerNight = parseCurrency(formData.hotelCost);
+  const hotel = hotelPricePerNight * tripDays;
   const food = parseCurrency(formData.foodCost);
   const activities = parseCurrency(formData.activitiesCost);
   const transportMeta = getTransportMeta(formData.transportType);
   const passengers = parseSafeInteger(formData.passengers, 1, MAX_PASSENGERS, 1);
   const unitsRequired = Math.max(1, Math.ceil(passengers / transportMeta.capacity));
   const fuelPricePerLiter = parseCurrency(formData.fuelPricePerLiter || transportMeta.defaultFuelPrice);
-  const tripDays = getTripDays(formData.departureDateTime, formData.returnDateTime);
 
   const outboundDistance = outboundRoute?.distanceKm || 0;
   const returnDistance = isRoundTrip ? (returnRoute?.distanceKm || outboundDistance) : 0;
@@ -140,14 +173,15 @@ const calculateBudgetSummary = (formData) => {
 
   const outboundTolls = outboundRoute?.tollOneWay || 0;
   const returnTolls = isRoundTrip ? (returnRoute?.tollOneWay || outboundTolls) : 0;
-  const totalTolls = (outboundTolls + returnTolls) * unitsRequired;
+  const tollMultiplier = TOLL_MULTIPLIER[formData.transportType] || 1;
+  const totalTolls = (outboundTolls + returnTolls) * unitsRequired * tollMultiplier;
 
   const fuelLiters = (totalDistanceKm / 3) * unitsRequired;
   const fuelCost = fuelLiters * fuelPricePerLiter;
   const perDiemCost = tripDays * DRIVER_PER_DIEM_FACTOR * MINIMUM_WAGE_DAILY_MXN * unitsRequired;
 
   const routeOperationalSubtotal = fuelCost + totalTolls + perDiemCost;
-  const transport = transportAdditional + routeOperationalSubtotal;
+  const transport = routeOperationalSubtotal;
 
   const baseTotal = transport + hotel + food + activities;
   const contingencyPercent = parseSafeInteger(
@@ -170,7 +204,6 @@ const calculateBudgetSummary = (formData) => {
 
   return {
     transport: roundCurrency(transport),
-    transportAdditional: roundCurrency(transportAdditional),
     hotel: roundCurrency(hotel),
     food: roundCurrency(food),
     activities: roundCurrency(activities),
@@ -304,7 +337,9 @@ const validateCostField = (value) => {
     return '';
   }
 
-  const parsed = Number.parseFloat(value);
+  // Limpia caracteres de formato ($ y comas) para validar el número puro
+  const cleaned = String(value).replace(/[^\d.]/g, '');
+  const parsed = Number.parseFloat(cleaned);
   if (!Number.isFinite(parsed)) {
     return 'Ingresa un valor numerico valido.';
   }
@@ -449,7 +484,6 @@ const budgetFormDataPropType = PropTypes.shape({
   fuelPricePerLiter: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
   quantity: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
   passengers: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
-  transportCost: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
   hotelCost: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
   foodCost: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
   activitiesCost: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
@@ -504,11 +538,11 @@ const TravelInfoSection = ({
             onChange={handleChange}
             onBlur={handleBlur}
           >
-            <option value="bus">Autobús</option>
-            <option value="van">Van</option>
-            <option value="car">Carro</option>
-            <option value="plane">Avión</option>
-            <option value="train">Tren</option>
+            <option value="automovil">Automóvil</option>
+            <option value="pickups">Pick Ups</option>
+            <option value="motocicleta">Motocicleta</option>
+            <option value="camioneta">Camioneta</option>
+            <option value="automovil_remolque">Automóvil con Remolque 1 Eje</option>
           </select>
         </div>
       </div>
@@ -552,7 +586,7 @@ const TravelInfoSection = ({
           </select>
           {renderFieldError(fieldErrors, 'routeOutboundId', 'routeOutboundId-error')}
           {selectedOutboundRoute && (
-            <small className="input-help">{selectedOutboundRoute.distanceKm} km | Peajes: ${selectedOutboundRoute.tollOneWay.toFixed(2)}</small>
+            <small className="input-help">{selectedOutboundRoute.distanceKm} km | Peajes: {formatCurrency(selectedOutboundRoute.tollOneWay * TOLL_MULTIPLIER[formData.transportType])}</small>
           )}
         </div>
 
@@ -576,7 +610,7 @@ const TravelInfoSection = ({
             </select>
             {renderFieldError(fieldErrors, 'routeReturnId', 'routeReturnId-error')}
             {selectedReturnRoute && (
-              <small className="input-help">{selectedReturnRoute.distanceKm} km | Peajes: ${selectedReturnRoute.tollOneWay.toFixed(2)}</small>
+              <small className="input-help">{selectedReturnRoute.distanceKm} km | Peajes: {formatCurrency(selectedReturnRoute.tollOneWay * TOLL_MULTIPLIER[formData.transportType])}</small>
             )}
           </div>
         )}
@@ -639,19 +673,6 @@ const TravelInfoSection = ({
           />
           {renderFieldError(fieldErrors, 'fuelPricePerLiter', 'fuelPricePerLiter-error')}
         </div>
-
-        <div className="form-group">
-          <label>Referencia SCT para ruta/km</label>
-          <a
-            className="external-link"
-            href="http://app.sct.gob.mx/sibuac_internet/ControllerUI?action=cmdEscogeRuta"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Consultar en SCT
-          </a>
-          <small className="input-help">Las rutas precargadas se pueden contrastar con la consulta oficial.</small>
-        </div>
       </div>
 
       <div className="form-row">
@@ -704,12 +725,56 @@ TravelInfoSection.propTypes = {
 };
 
 const CostsSection = ({ formData, fieldErrors, handleChange, handleBlur }) => {
+  const [focusedField, setFocusedField] = useState(null);
+
   return (
     <div className="form-section">
       <h3>Costos del Viaje</h3>
 
       {COST_INPUT_CONFIG.map(({ id: fieldId, label, showMaxHint }) => {
         const errorId = `${fieldId}-error`;
+        const isFocused = focusedField === fieldId;
+        const displayValue = isFocused ? formData[fieldId] : formatCurrency(formData[fieldId]);
+
+        const handleFormattedCurrencyChange = (e) => {
+          const value = e.target.value;
+          
+          // Si el campo está vacío, lo mantenemos vacío
+          if (value === '') {
+            handleChange({
+              target: {
+                name: fieldId,
+                value: ''
+              }
+            });
+            return;
+          }
+          
+          // Extrae solo números y puntos
+          const cleaned = value.replace(/[^\d.]/g, '');
+          
+          // Valida el formato
+          if (cleaned === '' || /^\d*(\.\d{0,2})?$/.test(cleaned)) {
+            const parsed = Number.parseFloat(cleaned || '0');
+            const clamped = clampValue(parsed, 0, MAX_COST);
+            
+            handleChange({
+              target: {
+                name: fieldId,
+                value: String(clamped)
+              }
+            });
+          }
+        };
+
+        const handleFocus = () => {
+          setFocusedField(fieldId);
+        };
+
+        const handleBlurField = (e) => {
+          setFocusedField(null);
+          handleBlur(e);
+        };
 
         return (
           <div key={fieldId} className="form-group">
@@ -717,15 +782,14 @@ const CostsSection = ({ formData, fieldErrors, handleChange, handleBlur }) => {
             <input
               className={getFieldClassName(fieldErrors, fieldId)}
               id={fieldId}
-              type="number"
+              type="text"
               name={fieldId}
-              value={formData[fieldId]}
-              onChange={handleChange}
-              onBlur={handleBlur}
-              min="0"
-              max={MAX_COST}
-              step="0.01"
+              value={formData[fieldId] && formData[fieldId] !== '0' ? displayValue : ''}
+              onChange={handleFormattedCurrencyChange}
+              onFocus={handleFocus}
+              onBlur={handleBlurField}
               inputMode="decimal"
+              placeholder="$0.00"
               {...getFieldA11yProps(fieldErrors, fieldId, errorId)}
             />
             {renderFieldError(fieldErrors, fieldId, errorId)}
@@ -812,11 +876,10 @@ const BudgetForm = ({ isEditing = false }) => {
     routeReturnId: '',
     departureDateTime: '',
     returnDateTime: '',
-    transportType: 'bus',
-    fuelPricePerLiter: TRANSPORT_CONFIG.bus.defaultFuelPrice,
+    transportType: 'automovil',
+    fuelPricePerLiter: TRANSPORT_CONFIG.automovil.defaultFuelPrice,
     quantity: 1,
     passengers: 1,
-    transportCost: 0,
     hotelCost: 0,
     foodCost: 0,
     activitiesCost: 0,
@@ -834,8 +897,12 @@ const BudgetForm = ({ isEditing = false }) => {
       const budgets = await getUserBudgets(user.uid);
       const budget = budgets.find(b => b.id === id);
       if (budget) {
-        const fallbackTransport = budget.transportType || 'bus';
+        const fallbackTransport = budget.transportType || 'automovil';
         const transportMeta = getTransportMeta(fallbackTransport);
+        
+        // Calcular el precio por noche dividiendo el costo total por los días
+        const tripDays = getTripDays(budget.departureDateTime, budget.returnDateTime);
+        const hotelPricePerNight = budget.hotelCost && tripDays > 0 ? budget.hotelCost / tripDays : 0;
 
         setFormData({
           tripType: budget.tripType || 'oneWay',
@@ -848,8 +915,7 @@ const BudgetForm = ({ isEditing = false }) => {
           fuelPricePerLiter: budget.fuelPricePerLiter || transportMeta.defaultFuelPrice,
           quantity: budget.quantity || 1,
           passengers: budget.passengers || 1,
-          transportCost: budget.transportCost || 0,
-          hotelCost: budget.hotelCost || 0,
+          hotelCost: hotelPricePerNight || 0,
           foodCost: budget.foodCost || 0,
           activitiesCost: budget.activitiesCost || 0,
           contingencyPercent: budget.contingencyPercent ?? DEFAULT_CONTINGENCY_PERCENT,
@@ -1062,7 +1128,6 @@ const BudgetForm = ({ isEditing = false }) => {
       'returnDateTime',
       'passengers',
       'fuelPricePerLiter',
-      'transportCost',
       'hotelCost',
       'foodCost',
       'activitiesCost',
@@ -1101,8 +1166,10 @@ const BudgetForm = ({ isEditing = false }) => {
       }
 
       const summary = calculateBudgetSummary({ ...formData, routeCatalog: routeOptions });
+      const destinationLabel = summary.outboundRouteLabel || formData.tripName || 'Viaje sin especificar';
       const budgetData = {
         ...formData,
+        destination: destinationLabel,
         tripName: formData.tripName.trim(),
         notes: formData.notes.trim(),
         fuelPricePerLiter: summary.fuelPricePerLiter,
@@ -1154,10 +1221,11 @@ const BudgetForm = ({ isEditing = false }) => {
 
   return (
     <div className="budget-form-container">
-      <div className="form-wrapper">
-        <h2>{isEditing ? 'Editar Presupuesto' : 'Crear Nuevo Presupuesto'}</h2>
+      <div className="form-left">
+        <div className="form-wrapper">
+          <h2>{isEditing ? 'Editar Presupuesto' : 'Crear Nuevo Presupuesto'}</h2>
 
-        {error && <div className="error-message">{error}</div>}
+          {error && <div className="error-message">{error}</div>}
 
         <form onSubmit={handleSubmit}>
           <TravelInfoSection
@@ -1184,55 +1252,6 @@ const BudgetForm = ({ isEditing = false }) => {
             notesLength={notesLength}
           />
 
-          <div className="total-section">
-            <h3>Resumen de Presupuesto</h3>
-
-            <div className="route-summary-box">
-              <h4>Itinerario y Operación</h4>
-              <p>Ruta de ida: {summary.outboundRouteLabel || 'Sin seleccionar'}</p>
-              {summary.isRoundTrip && <p>Ruta de regreso: {summary.returnRouteLabel || 'Sin seleccionar'}</p>}
-              <p>Distancia total: {summary.totalDistanceKm.toFixed(2)} km</p>
-              <p>Combustible estimado: {summary.fuelLiters.toFixed(2)} L</p>
-              <p>Costo de combustible: ${summary.fuelCost.toFixed(2)}</p>
-              <p>Costo de peajes: ${summary.tollCost.toFixed(2)}</p>
-              <p>Viáticos de chofer: ${summary.perDiemCost.toFixed(2)}</p>
-              <p>Subtotal operativo: ${summary.routeOperationalSubtotal.toFixed(2)}</p>
-            </div>
-
-            <div className="budget-kpi-grid">
-              <div className="budget-kpi-item">
-                <span className="kpi-label">Base</span>
-                <span className="kpi-value">${summary.baseTotal.toFixed(2)}</span>
-              </div>
-              <div className="budget-kpi-item">
-                <span className="kpi-label">Imprevistos ({summary.contingencyPercent}%)</span>
-                <span className="kpi-value">${summary.contingencyAmount.toFixed(2)}</span>
-              </div>
-              <div className="budget-kpi-item highlight">
-                <span className="kpi-label">Total recomendado</span>
-                <span className="kpi-value">${summary.recommendedTotal.toFixed(2)}</span>
-              </div>
-              <div className="budget-kpi-item">
-                <span className="kpi-label">Duracion</span>
-                <span className="kpi-value">{summary.tripDays} dias</span>
-              </div>
-            </div>
-
-            <div className="budget-metrics-grid">
-              <p className="total-per-person">Por persona: ${summary.perPersonRecommendedBudget.toFixed(2)}</p>
-              <p className="total-per-person">Por dia: ${summary.dailyRecommendedBudget.toFixed(2)}</p>
-              <p className="total-per-person">Por persona/dia: ${summary.perPersonPerDayRecommended.toFixed(2)}</p>
-            </div>
-
-            <div className="budget-breakdown">
-              <h4>Distribucion por categoria</h4>
-              <p>Transporte: {summary.breakdown.transportPercent.toFixed(1)}%</p>
-              <p>Hospedaje: {summary.breakdown.hotelPercent.toFixed(1)}%</p>
-              <p>Comida: {summary.breakdown.foodPercent.toFixed(1)}%</p>
-              <p>Actividades: {summary.breakdown.activitiesPercent.toFixed(1)}%</p>
-            </div>
-          </div>
-
           <div className="form-actions">
             <button
               type="button"
@@ -1251,6 +1270,60 @@ const BudgetForm = ({ isEditing = false }) => {
           </div>
         </form>
       </div>
+    </div>
+
+    <div className="summary-right">
+      <div className="summary-sticky">
+        <div className="total-section">
+          <h3>Resumen de Presupuesto</h3>
+
+          <div className="route-summary-box">
+            <h4>Itinerario y Operación</h4>
+            <p>Ruta de ida: {summary.outboundRouteLabel || 'Sin seleccionar'}</p>
+            {summary.isRoundTrip && <p>Ruta de regreso: {summary.returnRouteLabel || 'Sin seleccionar'}</p>}
+            <p>Distancia total: {summary.totalDistanceKm.toFixed(2)} km</p>
+            <p>Combustible estimado: {summary.fuelLiters.toFixed(2)} L</p>
+            <p>Costo de combustible: {formatCurrency(summary.fuelCost)}</p>
+            <p>Costo de peajes: {formatCurrency(summary.tollCost)}</p>
+            <p>Viáticos de chofer: {formatCurrency(summary.perDiemCost)}</p>
+            <p>Subtotal operativo: {formatCurrency(summary.routeOperationalSubtotal)}</p>
+          </div>
+
+          <div className="budget-kpi-grid">
+            <div className="budget-kpi-item">
+              <span className="kpi-label">Base</span>
+              <span className="kpi-value">{formatCurrency(summary.baseTotal)}</span>
+            </div>
+            <div className="budget-kpi-item">
+              <span className="kpi-label">Imprevistos ({summary.contingencyPercent}%)</span>
+              <span className="kpi-value">{formatCurrency(summary.contingencyAmount)}</span>
+            </div>
+            <div className="budget-kpi-item highlight">
+              <span className="kpi-label">Total recomendado</span>
+              <span className="kpi-value">{formatCurrency(summary.recommendedTotal)}</span>
+            </div>
+            <div className="budget-kpi-item">
+              <span className="kpi-label">Duracion</span>
+              <span className="kpi-value">{summary.tripDays} dias</span>
+            </div>
+          </div>
+
+          <div className="budget-metrics-grid">
+            <p className="total-per-person">Por persona: {formatCurrency(summary.perPersonRecommendedBudget)}</p>
+            <p className="total-per-person">Por dia: {formatCurrency(summary.dailyRecommendedBudget)}</p>
+            <p className="total-per-person">Por persona/dia: {formatCurrency(summary.perPersonPerDayRecommended)}</p>
+          </div>
+
+          <div className="budget-breakdown">
+            <h4>Distribucion por categoria</h4>
+            <p>Transporte: {summary.breakdown.transportPercent.toFixed(1)}%</p>
+            <p>Hospedaje: {summary.breakdown.hotelPercent.toFixed(1)}%</p>
+            <p>Comida: {summary.breakdown.foodPercent.toFixed(1)}%</p>
+            <p>Actividades: {summary.breakdown.activitiesPercent.toFixed(1)}%</p>
+          </div>
+        </div>
+      </div>
+    </div>
     </div>
   );
 };

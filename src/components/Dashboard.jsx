@@ -2,7 +2,50 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
 import { getUserBudgets, deleteBudget } from '../services/budgetService';
+import { getPreloadedRoutes } from '../services/locationService';
+import { generateBudgetPDF } from '../utils/pdfGenerator';
+import { FaMapLocationDot, FaGasPump, FaCar, FaRoad } from 'react-icons/fa6';
 import './Dashboard.css';
+
+const TRANSPORT_CONFIG = {
+  automovil: { label: 'Automóvil', capacity: 4, defaultFuelPrice: 24.5 },
+  pickups: { label: 'Pick Ups', capacity: 5, defaultFuelPrice: 23.5 },
+  motocicleta: { label: 'Motocicleta', capacity: 1, defaultFuelPrice: 20 },
+  camioneta: { label: 'Camioneta', capacity: 8, defaultFuelPrice: 23 },
+  automovil_remolque: { label: 'Automóvil con Remolque 1 Eje', capacity: 6, defaultFuelPrice: 25.5 }
+};
+
+const TOLL_MULTIPLIER = {
+  automovil: 1,
+  pickups: 1,
+  motocicleta: 0.5,
+  camioneta: 1.5,
+  automovil_remolque: 2
+};
+
+const formatDate = (dateString) => {
+  if (!dateString) return 'No especificada';
+  try {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('es-MX', { year: 'numeric', month: 'short', day: 'numeric' });
+  } catch {
+    return dateString;
+  }
+};
+
+const getTransportLabel = (transportType) => {
+  return TRANSPORT_CONFIG[transportType]?.label || transportType;
+};
+
+const formatCurrency = (value) => {
+  const num = Number.parseFloat(value || 0);
+  return new Intl.NumberFormat('es-MX', {
+    style: 'currency',
+    currency: 'MXN',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(num);
+};
 
 const Dashboard = () => {
   const { user, userProfile, logout } = useAuth();
@@ -42,6 +85,15 @@ const Dashboard = () => {
     }
   };
 
+  const handleGeneratePDF = async (budget) => {
+    try {
+      await generateBudgetPDF(budget);
+    } catch (error) {
+      console.error('Error al generar PDF:', error);
+      alert('Error al generar el PDF: ' + error.message);
+    }
+  };
+
   const handleLogout = async () => {
     await logout();
     navigate('/login');
@@ -70,15 +122,54 @@ const Dashboard = () => {
         {budgets.map((budget) => (
           <div key={budget.id} className="budget-card">
             <div className="budget-header">
-              <h3>{budget.destination}</h3>
-              <span className="budget-status">{budget.status || 'En Progreso'}</span>
+              <h3>{budget.tripName || budget.destination}</h3>
             </div>
 
             <div className="budget-details">
-              <p><strong>Fechas:</strong> {budget.startDate} a {budget.endDate}</p>
-              <p><strong>Tipo de Transporte:</strong> {budget.transportType}</p>
-              <p><strong>Cantidad de Pasajeros:</strong> {budget.passengers}</p>
-              <p><strong>Presupuesto Total:</strong> ${budget.totalBudget}</p>
+              <div className="budget-details-row">
+                <span className="detail-label">Ruta:</span>
+                <span className="detail-value">{budget.destination || budget.outboundRouteLabel || budget.tripName || 'Sin especificar'}</span>
+              </div>
+              <div className="budget-details-row">
+                <span className="detail-label">Distancia:</span>
+                <span className="detail-value">{budget.routeDistanceKm || 0} km</span>
+              </div>
+              <div className="budget-details-row">
+                <span className="detail-label">Fechas:</span>
+                <span className="detail-value">{formatDate(budget.departureDateTime)} a {formatDate(budget.returnDateTime)}</span>
+              </div>
+              <div className="budget-details-row">
+                <span className="detail-label">Transporte:</span>
+                <span className="detail-value">{getTransportLabel(budget.transportType)}</span>
+              </div>
+              <div className="budget-details-row">
+                <span className="detail-label">Pasajeros:</span>
+                <span className="detail-value">{budget.passengers}</span>
+              </div>
+              
+              <div className="budget-costs">
+                <div className="cost-item">
+                  <span>Transporte:</span>
+                  <span className="cost-value">{formatCurrency(budget.transportCost)}</span>
+                </div>
+                <div className="cost-item">
+                  <span>Hospedaje:</span>
+                  <span className="cost-value">{formatCurrency(budget.hotelCost)}</span>
+                </div>
+                <div className="cost-item">
+                  <span>Comida:</span>
+                  <span className="cost-value">{formatCurrency(budget.foodCost)}</span>
+                </div>
+                <div className="cost-item">
+                  <span>Actividades:</span>
+                  <span className="cost-value">{formatCurrency(budget.activitiesCost)}</span>
+                </div>
+              </div>
+              
+              <div className="budget-total">
+                <span>Presupuesto Total:</span>
+                <span className="total-value">{formatCurrency(budget.totalBudget)}</span>
+              </div>
             </div>
 
             <div className="budget-actions">
@@ -87,6 +178,12 @@ const Dashboard = () => {
                 className="btn-edit"
               >
                 Editar
+              </button>
+              <button
+                onClick={() => handleGeneratePDF(budget)}
+                className="btn-report"
+              >
+                Generar PDF
               </button>
               <button
                 onClick={() => handleDelete(budget.id)}
@@ -114,14 +211,96 @@ const Dashboard = () => {
       </navbar>
 
       <div className="dashboard-content">
-        <div className="header-section">
-          <h2>Mis Presupuestos de Viajes</h2>
+        <div className="header-section-top">
+          <h2>Catálogos</h2>
           <button 
             onClick={() => navigate('/crear-presupuesto')} 
             className="btn-create"
           >
-            + Crear Presupuesto
+            Generar Presupuesto
           </button>
+        </div>
+
+        <div className="catalogs-container">
+          <div className="catalog-section">
+            <div className="catalog-header">
+              <FaMapLocationDot className="catalog-icon" />
+              <h3>Catálogo de Rutas</h3>
+            </div>
+            <div className="catalog-items">
+              {getPreloadedRoutes().map((route) => (
+                <div key={route.id} className="route-item">
+                  <div className="route-info">
+                    <p className="route-label">{route.label}</p>
+                    <div className="route-details">
+                      <span>{route.distanceKm} km</span>
+                      <span>Peaje: ${route.tollOneWay}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="catalog-section">
+            <div className="catalog-header">
+              <FaCar className="catalog-icon" />
+              <h3>Catálogo de Unidades</h3>
+            </div>
+            <div className="catalog-items">
+              {Object.entries(TRANSPORT_CONFIG).map(([key, transport]) => (
+                <div key={key} className="transport-item">
+                  <div className="transport-info">
+                    <p className="transport-label">{transport.label}</p>
+                    <div className="transport-details">
+                      <span>Cap: {transport.capacity} pas</span>
+                      <span>Comb: ${transport.defaultFuelPrice}/L</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="catalog-section">
+            <div className="catalog-header">
+              <FaRoad className="catalog-icon" />
+              <h3>Catálogo de Casetas</h3>
+            </div>
+            <div className="catalog-items">
+              <p className="catalog-info">Los peajes varían según la ruta seleccionada. Consulta el catálogo de rutas para ver los peajes específicos.</p>
+              <div className="toll-multipliers">
+                <h4>Multiplicadores por tipo de transporte:</h4>
+                {Object.entries(TOLL_MULTIPLIER).map(([key, multiplier]) => (
+                  <div key={key} className="multiplier-item">
+                    <span>{TRANSPORT_CONFIG[key].label}</span>
+                    <span className="multiplier-value">{multiplier}x</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="catalog-section">
+            <div className="catalog-header">
+              <FaGasPump className="catalog-icon" />
+              <h3>Catálogo de Precios de Combustible</h3>
+            </div>
+            <div className="catalog-items">
+              {Object.entries(TRANSPORT_CONFIG).map(([key, transport]) => (
+                <div key={key} className="fuel-item">
+                  <div className="fuel-info">
+                    <p className="fuel-label">{transport.label}</p>
+                    <p className="fuel-price">${transport.defaultFuelPrice} por litro</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="header-section">
+          <h2>Mis Presupuestos de Viajes</h2>
         </div>
 
         {content}

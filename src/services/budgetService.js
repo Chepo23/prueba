@@ -6,7 +6,8 @@ import {
   deleteDoc, 
   doc,
   query,
-  where
+  where,
+  getDoc
 } from 'firebase/firestore';
 import { db } from '../firebase';
 
@@ -55,6 +56,35 @@ export const getUserBudgets = async (userId) => {
     return budgets;
   } catch (error) {
     console.error('Error al obtener presupuestos:', error);
+    throw error;
+  }
+};
+
+// Obtener un presupuesto específico por ID
+export const getBudgetById = async (budgetId, userId) => {
+  try {
+    const budgetRef = doc(db, 'budgets', budgetId);
+    const docSnapshot = await getDoc(budgetRef);
+    
+    if (!docSnapshot.exists()) {
+      console.error('El presupuesto no existe');
+      return null;
+    }
+    
+    const budgetData = docSnapshot.data();
+    
+    // Verificar que el presupuesto pertenece al usuario
+    if (budgetData.userId !== userId) {
+      console.error('No tienes permiso para acceder a este presupuesto');
+      return null;
+    }
+    
+    return {
+      id: docSnapshot.id,
+      ...budgetData
+    };
+  } catch (error) {
+    console.error('Error al obtener presupuesto:', error);
     throw error;
   }
 };
