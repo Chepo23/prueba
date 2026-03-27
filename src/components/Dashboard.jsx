@@ -4,48 +4,10 @@ import { useAuth } from '../context/useAuth';
 import { getUserBudgets, deleteBudget } from '../services/budgetService';
 import { getPreloadedRoutes } from '../services/locationService';
 import { generateBudgetPDF } from '../utils/pdfGenerator';
+import { TRANSPORT_CONFIG, TOLL_MULTIPLIER, getTransportLabel } from '../constants/transport';
+import { formatCurrency, formatDate } from '../utils/formatters';
 import { FaMapLocationDot, FaGasPump, FaCar, FaRoad } from 'react-icons/fa6';
 import './Dashboard.css';
-
-const TRANSPORT_CONFIG = {
-  automovil: { label: 'Automóvil', capacity: 4, defaultFuelPrice: 24.5 },
-  pickups: { label: 'Pick Ups', capacity: 5, defaultFuelPrice: 23.5 },
-  motocicleta: { label: 'Motocicleta', capacity: 1, defaultFuelPrice: 20 },
-  camioneta: { label: 'Camioneta', capacity: 8, defaultFuelPrice: 23 },
-  automovil_remolque: { label: 'Automóvil con Remolque 1 Eje', capacity: 6, defaultFuelPrice: 25.5 }
-};
-
-const TOLL_MULTIPLIER = {
-  automovil: 1,
-  pickups: 1,
-  motocicleta: 0.5,
-  camioneta: 1.5,
-  automovil_remolque: 2
-};
-
-const formatDate = (dateString) => {
-  if (!dateString) return 'No especificada';
-  try {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('es-MX', { year: 'numeric', month: 'short', day: 'numeric' });
-  } catch {
-    return dateString;
-  }
-};
-
-const getTransportLabel = (transportType) => {
-  return TRANSPORT_CONFIG[transportType]?.label || transportType;
-};
-
-const formatCurrency = (value) => {
-  const num = Number.parseFloat(value || 0);
-  return new Intl.NumberFormat('es-MX', {
-    style: 'currency',
-    currency: 'MXN',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(num);
-};
 
 const Dashboard = () => {
   const { user, userProfile, logout } = useAuth();
@@ -75,13 +37,19 @@ const Dashboard = () => {
   }, [loadBudgets]);
 
   const handleDelete = async (budgetId) => {
-    if (globalThis.confirm('¿Estás seguro de que deseas eliminar este presupuesto?')) {
-      try {
-        await deleteBudget(budgetId);
-        setBudgets((prevBudgets) => prevBudgets.filter((b) => b.id !== budgetId));
-      } catch (error) {
-        console.error('Error al eliminar:', error);
-      }
+    const confirmed = typeof globalThis.confirm === 'function'
+      ? globalThis.confirm('¿Estás seguro de que deseas eliminar este presupuesto?')
+      : false;
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await deleteBudget(budgetId);
+      setBudgets((prevBudgets) => prevBudgets.filter((b) => b.id !== budgetId));
+    } catch (error) {
+      console.error('Error al eliminar:', error);
     }
   };
 
@@ -96,7 +64,7 @@ const Dashboard = () => {
 
   const handleLogout = async () => {
     await logout();
-    navigate('/login');
+    navigate('/login', { replace: true });
   };
 
   let content = <div className="loading">Cargando presupuestos...</div>;
@@ -200,7 +168,7 @@ const Dashboard = () => {
 
   return (
     <div className="dashboard-container">
-      <navbar className="navbar">
+      <nav className="navbar">
         <div className="navbar-content">
           <h1>Panel de Control</h1>
           <div className="user-info">
@@ -208,7 +176,7 @@ const Dashboard = () => {
             <button onClick={handleLogout} className="btn-logout">Cerrar Sesión</button>
           </div>
         </div>
-      </navbar>
+      </nav>
 
       <div className="dashboard-content">
         <div className="header-section-top">

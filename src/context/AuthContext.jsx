@@ -1,7 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, createContext } from 'react';
 import PropTypes from 'prop-types';
 import { auth } from '../firebase';
-import { AuthContext } from './authContext';
 import { 
   createUserWithEmailAndPassword, 
   signInWithEmailAndPassword,
@@ -12,6 +11,9 @@ import {
 } from 'firebase/auth';
 import { createUserProfile, getUserByEmail } from '../services/userService';
 import { getAuthErrorMessage } from '../utils/authErrorMessages';
+
+// eslint-disable-next-line react-refresh/only-export-components
+export const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);

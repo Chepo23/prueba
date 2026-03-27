@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useEffect, useRef, useState } from 'react';
+import { useNavigate, useNavigationType } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
 import { getEmailByUsername } from '../services/userService';
 import './Auth.css';
@@ -9,13 +9,24 @@ const Login = () => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const { user, login, logout } = useAuth();
   const navigate = useNavigate();
+  const navigationType = useNavigationType();
+  const suppressLogoutRef = useRef(false);
+
+  // Solo cerramos sesión si el usuario volvió a /login vía historial (POP),
+  // no cuando acaba de iniciar sesión y fue enviado con replace.
+  useEffect(() => {
+    if (user && navigationType === 'POP' && !suppressLogoutRef.current) {
+      logout();
+    }
+  }, [user, navigationType, logout]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
+    suppressLogoutRef.current = true;
 
     try {
       // Validar que el input no esté vacío
@@ -49,10 +60,11 @@ const Login = () => {
       // Iniciar sesión con el email encontrado
       try {
         await login(email, password);
-        navigate('/dashboard');
+        navigate('/dashboard', { replace: true });
       } catch (err) {
         console.error('Error en login:', err);
         setError('Contraseña incorrecta o error al iniciar sesión.');
+        suppressLogoutRef.current = false;
       }
     } finally {
       setLoading(false);

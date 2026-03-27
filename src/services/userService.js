@@ -104,12 +104,10 @@ export const getEmailByUsername = async (username) => {
     const querySnapshot = await getDocs(q);
     
     if (querySnapshot.empty) {
-      console.log('Username no encontrado:', username);
       return null;
     }
     
     const doc = querySnapshot.docs[0];
-    console.log('Email encontrado:', doc.data().email);
     return doc.data().email;
   } catch (error) {
     console.error('Error al obtener email por username:', error);

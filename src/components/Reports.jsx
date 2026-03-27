@@ -4,39 +4,9 @@ import { useAuth } from '../context/useAuth';
 import { getBudgetById } from '../services/budgetService';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+import { getTransportLabel } from '../constants/transport';
+import { formatCurrency, formatDate } from '../utils/formatters';
 import './Reports.css';
-
-const TRANSPORT_CONFIG = {
-  automovil: { label: 'Automóvil', capacity: 4, defaultFuelPrice: 24.5 },
-  pickups: { label: 'Pick Ups', capacity: 5, defaultFuelPrice: 23.5 },
-  motocicleta: { label: 'Motocicleta', capacity: 1, defaultFuelPrice: 20 },
-  camioneta: { label: 'Camioneta', capacity: 8, defaultFuelPrice: 23 },
-  automovil_remolque: { label: 'Automóvil con Remolque 1 Eje', capacity: 6, defaultFuelPrice: 25.5 }
-};
-
-const formatDate = (dateString) => {
-  if (!dateString) return 'No especificada';
-  try {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('es-MX', { year: 'numeric', month: 'short', day: 'numeric' });
-  } catch {
-    return dateString;
-  }
-};
-
-const getTransportLabel = (transportType) => {
-  return TRANSPORT_CONFIG[transportType]?.label || transportType;
-};
-
-const formatCurrency = (value) => {
-  const num = Number.parseFloat(value || 0);
-  return new Intl.NumberFormat('es-MX', {
-    style: 'currency',
-    currency: 'MXN',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(num);
-};
 
 const Reports = () => {
   const { id } = useParams();

@@ -4,6 +4,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
 import { createBudget, updateBudget, getUserBudgets } from '../services/budgetService';
 import { getPreloadedRoutes } from '../services/locationService';
+import { TRANSPORT_CONFIG, TOLL_MULTIPLIER } from '../constants/transport';
+import { formatCurrency } from '../utils/formatters';
 import './BudgetForm.css';
 
 const MAX_PASSENGERS = 100;
@@ -18,30 +20,6 @@ const MINIMUM_WAGE_DAILY_MXN = 278.8;
 const DRIVER_PER_DIEM_FACTOR = 6;
 
 const ROUND_TRIP = 'roundTrip';
-
-const TRANSPORT_CONFIG = {
-  automovil: { label: 'Automóvil', capacity: 4, defaultFuelPrice: 24.5 },
-  pickups: { label: 'Pick Ups', capacity: 5, defaultFuelPrice: 23.5 },
-  motocicleta: { label: 'Motocicleta', capacity: 1, defaultFuelPrice: 20 },
-  camioneta: { label: 'Camioneta', capacity: 8, defaultFuelPrice: 23 },
-  automovil_remolque: { label: 'Automóvil con Remolque 1 Eje', capacity: 6, defaultFuelPrice: 25.5 }
-};
-
-const TOLL_CONFIG = {
-  automovil: 150,
-  pickups: 150,
-  motocicleta: 75,
-  camioneta: 225,
-  automovil_remolque: 300
-};
-
-const TOLL_MULTIPLIER = {
-  automovil: 1,
-  pickups: 1,
-  motocicleta: 0.5,
-  camioneta: 1.5,
-  automovil_remolque: 2
-};
 
 const COST_FIELDS = new Set(['hotelCost', 'foodCost', 'activitiesCost']);
 const INTEGER_RULES = {
@@ -93,13 +71,6 @@ const normalizeCurrencyInput = (rawValue) => {
   return String(clampValue(parsed, 0, MAX_COST));
 };
 
-const parseFormattedCurrency = (formattedStr) => {
-  // Extrae solo números y punto decimal del string formateado
-  const cleaned = formattedStr.replace(/[^\d.]/g, '');
-  const parsed = Number.parseFloat(cleaned);
-  return Number.isFinite(parsed) ? String(parsed) : '';
-};
-
 const parseCurrency = (value) => {
   const parsed = Number.parseFloat(value);
   if (!Number.isFinite(parsed)) {
@@ -119,16 +90,6 @@ const parseSafeInteger = (value, min, max, fallback) => {
 };
 
 const roundCurrency = (value) => Number((value || 0).toFixed(2));
-
-const formatCurrency = (value) => {
-  const num = Number.parseFloat(value || 0);
-  return new Intl.NumberFormat('es-MX', {
-    style: 'currency',
-    currency: 'MXN',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(num);
-};
 
 const getTransportMeta = (transportType) => TRANSPORT_CONFIG[transportType] || TRANSPORT_CONFIG.automovil;
 
@@ -500,6 +461,7 @@ const TravelInfoSection = ({
   handleChange,
   handleBlur,
   routeOptions,
+  returnRouteOptions,
   summary
 }) => {
   const selectedOutboundRoute = routeOptions.find((route) => route.id === formData.routeOutboundId);
@@ -604,7 +566,7 @@ const TravelInfoSection = ({
               required
             >
               <option value="">Selecciona una ruta</option>
-              {routeOptions.map((route) => (
+              {returnRouteOptions.map((route) => (
                 <option key={route.id} value={route.id}>{route.label}</option>
               ))}
             </select>
@@ -712,6 +674,14 @@ TravelInfoSection.propTypes = {
   handleChange: PropTypes.func.isRequired,
   handleBlur: PropTypes.func.isRequired,
   routeOptions: PropTypes.arrayOf(PropTypes.shape({
+    id: PropTypes.string.isRequired,
+    label: PropTypes.string.isRequired,
+    origin: PropTypes.string.isRequired,
+    destination: PropTypes.string.isRequired,
+    distanceKm: PropTypes.number.isRequired,
+    tollOneWay: PropTypes.number.isRequired
+  })).isRequired,
+  returnRouteOptions: PropTypes.arrayOf(PropTypes.shape({
     id: PropTypes.string.isRequired,
     label: PropTypes.string.isRequired,
     origin: PropTypes.string.isRequired,
@@ -888,6 +858,27 @@ const BudgetForm = ({ isEditing = false }) => {
     notes: ''
   });
 
+  const returnRouteOptions = useMemo(() => {
+    if (!formData.routeOutboundId) {
+      return routeOptions;
+    }
+
+    const outboundRoute = routeOptions.find((route) => route.id === formData.routeOutboundId);
+    if (!outboundRoute) {
+      return routeOptions;
+    }
+
+    const strictMatches = routeOptions.filter(
+      (route) => route.origin === outboundRoute.destination && route.destination === outboundRoute.origin
+    );
+
+    if (strictMatches.length > 0) {
+      return strictMatches;
+    }
+
+    return routeOptions.filter((route) => route.origin === outboundRoute.destination);
+  }, [formData.routeOutboundId, routeOptions]);
+
   const loadBudgetData = useCallback(async () => {
     if (!isEditing || !id || !user?.uid) {
       return;
@@ -982,14 +973,26 @@ const BudgetForm = ({ isEditing = false }) => {
     }
 
     if (name === 'routeOutboundId') {
+      const outboundRoute = routeOptions.find((route) => route.id === value);
+      const reverseCandidates = outboundRoute
+        ? routeOptions.filter(
+            (route) => route.origin === outboundRoute.destination && route.destination === outboundRoute.origin
+          )
+        : [];
+
+      const nextRouteReturnId = formData.tripType === ROUND_TRIP
+        ? (reverseCandidates[0]?.id || '')
+        : '';
+
       const nextFormData = {
         ...formData,
         routeOutboundId: value,
-        routeReturnId: formData.tripType === ROUND_TRIP && !formData.routeReturnId ? value : formData.routeReturnId
+        routeReturnId: nextRouteReturnId
       };
 
       setFormData(nextFormData);
       validateAndSetError(name, value, nextFormData);
+      validateAndSetError('routeReturnId', nextRouteReturnId, nextFormData);
       return;
     }
 
@@ -1234,6 +1237,7 @@ const BudgetForm = ({ isEditing = false }) => {
             handleChange={handleChange}
             handleBlur={handleBlur}
             routeOptions={routeOptions}
+            returnRouteOptions={returnRouteOptions}
             summary={summary}
           />
 
