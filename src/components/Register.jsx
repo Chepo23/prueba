@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/useAuth';
 import { checkUsernameExists } from '../services/userService';
+import { getAuthErrorMessage } from '../utils/authErrorMessages';
 import './Auth.css';
 
 const Register = () => {
@@ -84,7 +85,7 @@ const Register = () => {
       await register(email, password, username);
       navigate('/dashboard');
     } catch (err) {
-      setError(err.message || 'Error al crear la cuenta');
+      setError(getAuthErrorMessage(err, 'Error al crear la cuenta. Intenta nuevamente.'));
     } finally {
       setLoading(false);
     }
@@ -100,8 +101,9 @@ const Register = () => {
         
         <form onSubmit={handleSubmit}>
           <div className="form-group">
-            <label>Nombre de Usuario</label>
+            <label htmlFor="register-username">Nombre de Usuario</label>
             <input
+              id="register-username"
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
@@ -112,8 +114,9 @@ const Register = () => {
           </div>
 
           <div className="form-group">
-            <label>Correo Electrónico</label>
+            <label htmlFor="register-email">Correo Electrónico</label>
             <input
+              id="register-email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -127,8 +130,9 @@ const Register = () => {
           </div>
 
           <div className="form-group">
-            <label>Contraseña</label>
+            <label htmlFor="register-password">Contraseña</label>
             <input
+              id="register-password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -153,8 +157,9 @@ const Register = () => {
           </div>
 
           <div className="form-group">
-            <label>Confirmar Contraseña</label>
+            <label htmlFor="register-confirm-password">Confirmar Contraseña</label>
             <input
+              id="register-confirm-password"
               type="password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}

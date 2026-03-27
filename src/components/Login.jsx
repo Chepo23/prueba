@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/useAuth';
 import { getEmailByUsername } from '../services/userService';
 import './Auth.css';
 
@@ -69,8 +69,9 @@ const Login = () => {
         
         <form onSubmit={handleSubmit}>
           <div className="form-group">
-            <label>Nombre de Usuario o Correo</label>
+            <label htmlFor="login-username">Nombre de Usuario o Correo</label>
             <input
+              id="login-username"
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
@@ -81,8 +82,9 @@ const Login = () => {
           </div>
 
           <div className="form-group">
-            <label>Contraseña</label>
+            <label htmlFor="login-password">Contraseña</label>
             <input
+              id="login-password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}

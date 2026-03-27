@@ -1,5 +1,7 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import PropTypes from 'prop-types';
 import { auth } from '../firebase';
+import { AuthContext } from './authContext';
 import { 
   createUserWithEmailAndPassword, 
   signInWithEmailAndPassword,
@@ -9,8 +11,7 @@ import {
   browserLocalPersistence
 } from 'firebase/auth';
 import { createUserProfile, getUserByEmail } from '../services/userService';
-
-const AuthContext = createContext();
+import { getAuthErrorMessage } from '../utils/authErrorMessages';
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -50,7 +51,7 @@ export const AuthProvider = ({ children }) => {
       setUserProfile(profile);
       
     } catch (err) {
-      setError(err.message);
+      setError(getAuthErrorMessage(err, 'Error al crear la cuenta. Intenta nuevamente.'));
       throw err;
     }
   };
@@ -65,7 +66,7 @@ export const AuthProvider = ({ children }) => {
       setUserProfile(profile);
       
     } catch (err) {
-      setError(err.message);
+      setError(getAuthErrorMessage(err, 'Error al iniciar sesión. Intenta nuevamente.'));
       throw err;
     }
   };
@@ -77,22 +78,28 @@ export const AuthProvider = ({ children }) => {
       setUser(null);
       setUserProfile(null);
     } catch (err) {
-      setError(err.message);
+      setError(getAuthErrorMessage(err, 'Error al cerrar sesión. Intenta nuevamente.'));
       throw err;
     }
   };
 
+  const authValue = useMemo(() => ({
+    user,
+    userProfile,
+    loading,
+    error,
+    register,
+    login,
+    logout
+  }), [user, userProfile, loading, error]);
+
   return (
-    <AuthContext.Provider value={{ user, userProfile, loading, error, register, login, logout }}>
+    <AuthContext.Provider value={authValue}>
       {children}
     </AuthContext.Provider>
   );
 };
 
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth debe usarse dentro de AuthProvider');
-  }
-  return context;
+AuthProvider.propTypes = {
+  children: PropTypes.node.isRequired
 };
